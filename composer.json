@@ -1,0 +1,52 @@
+{
+    "name": "pliic/pliic-php",
+    "description": "Official PHP SDK for the Pliic feedback and support platform: typed API client, end-user token minting, and webhook signature verification.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Alessandro Nunes",
+            "email": "alessandronuunes@gmail.com"
+        }
+    ],
+    "homepage": "https://pliic.com",
+    "support": {
+        "issues": "https://github.com/4nuunes/pliic-php/issues",
+        "source": "https://github.com/4nuunes/pliic-php",
+        "docs": "https://docs.pliic.com/integrations/sdk-php/"
+    },
+    "keywords": [
+        "pliic",
+        "feedback",
+        "suggestions",
+        "support-tickets",
+        "sdk",
+        "api",
+        "webhooks"
+    ],
+    "require": {
+        "php": "^8.2",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Pliic\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Pliic\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit"
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}
