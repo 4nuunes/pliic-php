@@ -16,13 +16,16 @@ class Tickets extends AbstractResource
     }
 
     /**
-     * Ticket detail including the public message thread.
+     * Ticket detail including the public message thread. Pass `user_id`/`user_email`
+     * to scope the lookup to that author — the API answers 404 when the ticket
+     * belongs to someone else.
      *
+     * @param  array{user_id?: string, user_email?: string}  $params
      * @return array<string, mixed>
      */
-    public function get(int $id): array
+    public function get(int $id, array $params = []): array
     {
-        return $this->client->request('GET', "/tickets/{$id}");
+        return $this->client->request('GET', "/tickets/{$id}", $params);
     }
 
     /**

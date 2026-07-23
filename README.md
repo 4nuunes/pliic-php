@@ -52,9 +52,11 @@ Passing `user_id` (your external id) or `user_email` on reads adds `user_has_vot
 ```php
 $pliic->tickets->list(['user_id' => 'u_123']);           // that user's tickets
 $pliic->tickets->create(['user' => $user, 'subject' => 'Checkout error', 'body' => '...', 'type' => 'bug']);
-$pliic->tickets->get(7);                                 // includes the public message thread
+$pliic->tickets->get(7, ['user_id' => 'u_123']);         // 404s if the ticket isn't u_123's
 $pliic->tickets->reply(7, ['user' => $user, 'body' => 'More detail here...']);
 ```
+
+Passing `user_id`/`user_email` to `tickets->get()` scopes the lookup to that author instead of trusting the caller to check `data.author` themselves — no need to paginate `tickets->list()` first just to confirm ownership.
 
 ## Surveys, analytics, privacy
 

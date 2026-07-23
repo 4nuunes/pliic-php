@@ -86,6 +86,15 @@ final class PliicClientTest extends TestCase
         $client->tickets->reply(9, ['user' => ['id' => 'u_1'], 'body' => 'More info']);
         $this->assertSame('https://pliic.test/api/v1/tickets/9/replies', $http->lastRequest()['url']);
 
+        $client->tickets->get(9);
+        $this->assertSame('https://pliic.test/api/v1/tickets/9', $http->lastRequest()['url']);
+
+        $client->tickets->get(9, ['user_id' => 'u_1']);
+        $this->assertSame('https://pliic.test/api/v1/tickets/9?user_id=u_1', $http->lastRequest()['url']);
+
+        $client->tickets->get(9, ['user_email' => 'ana@example.com']);
+        $this->assertSame('https://pliic.test/api/v1/tickets/9?user_email=ana%40example.com', $http->lastRequest()['url']);
+
         $client->surveys->results(3);
         $this->assertSame('https://pliic.test/api/v1/surveys/3/results', $http->lastRequest()['url']);
 
