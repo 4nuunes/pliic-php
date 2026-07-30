@@ -190,6 +190,99 @@ expect($fake->lastRequestBody())->toBe(['user' => $user, 'title' => 'Dark mode']
 
 `$fake->requests` holds every call made (`method`, `url`, `headers`, `body`), and `Pliic\Testing\Fixtures` exposes every canned payload directly (`Fixtures::suggestion()`, `Fixtures::ticket()`, …) if you need one outside the fake — e.g. to assert against in a controller test. These fixtures are checked against the real API's OpenAPI spec in CI, so they don't drift silently.
 
+## Laravel
+
+The bridge is optional and auto-discovered — it only loads when the host app is a Laravel application. It never adds `illuminate/support` to the SDK's own `require`, so plain-PHP consumers are unaffected.
+
+**1. Install** (already done if you followed [Install](#install) above):
+
+```bash
+composer require pliic/pliic-php
+```
+
+**2. Publish the config and set your environment variables:**
+
+```bash
+php artisan vendor:publish --tag=pliic-config
+```
+
+```env
+PLIIC_API_KEY=sk_live_...
+PLIIC_BASE_URL=https://pliic.com
+PLIIC_WEBHOOK_SECRET=whsec_...
+```
+
+`Pliic\PliicClient` is now bound as a singleton — resolve it anywhere via the container:
+
+```php
+use Pliic\PliicClient;
+
+$pliic = app(PliicClient::class);
+```
+
+**3. Register the webhook route and listen for the event:**
+
+```php
+use Pliic\Laravel\Pliic;
+
+Pliic::webhooks('/webhooks/pliic'); // POST /webhooks/pliic
+```
+
+The route verifies `X-Pliic-Signature` for you and dispatches `Pliic\Laravel\Events\WebhookReceived` — your app never touches the raw payload or the signature check.
+
+```php
+use Illuminate\Support\Facades\Event;
+use Pliic\Laravel\Events\WebhookReceived;
+
+Event::listen(WebhookReceived::class, function (WebhookReceived $received): void {
+    match ($received->event->type) {
+        'suggestion.created' => notifyTeamOfNewSuggestion($received->event->data),
+        default => null,
+    };
+});
+```
+
+Pliic retries failed deliveries with backoff, so the same `event->id` can arrive more than once. Dedupe by `event->id` (a cache entry or a unique constraint) before acting on it if the handler isn't naturally idempotent.
+
+### CSRF
+
+The webhook route authenticates itself via `X-Pliic-Signature`, not a session, so it must run **outside** the `web` middleware group's CSRF check. Either:
+
+- register it in `routes/api.php` (no CSRF there by default), or
+- keep it in `routes/web.php` and add its URI to `VerifyCsrfToken::$except`:
+
+```php
+protected $except = [
+    'webhooks/pliic',
+];
+```
+
+### The `author` vs `sender` fields (avoiding self-notifications)
+
+Every webhook payload's `data` carries both an `author` (who the record belongs to — e.g. the suggestion's or ticket's original creator) and a `sender` (who actually triggered *this* event — could be the same person, a teammate, or nobody in particular). Compare their `external_id` before notifying anyone, so a user doesn't get pinged for their own comment or their own status change:
+
+```php
+use Illuminate\Support\Facades\Event;
+use Pliic\Laravel\Events\WebhookReceived;
+
+Event::listen(WebhookReceived::class, function (WebhookReceived $received): void {
+    if ($received->event->type !== 'suggestion.commented') {
+        return;
+    }
+
+    $author = $received->event->data['author']; // ['external_id' => ..., 'name' => ...]
+    $sender = $received->event->data['sender']; // ['type' => 'app_user'|'member', 'external_id' => ..., 'name' => ...]
+
+    if ($sender['external_id'] === $author['external_id']) {
+        return; // the author commented on their own suggestion — nothing to notify
+    }
+
+    notify($author, "{$sender['name']} commented on your suggestion.");
+});
+```
+
+`sender['type']` is `'member'` when a teammate acted on your dashboard (its `external_id` is always `null` — members aren't app users), and `'app_user'` when the end user themselves triggered the event.
+
 ## Versioning
 
 Semantic versioning. Development happens in the private Pliic monorepo; [4nuunes/pliic-php](https://github.com/4nuunes/pliic-php) is the read-only distribution mirror. Report issues there — pull requests to the mirror cannot be merged.

@@ -30,7 +30,11 @@
         "ext-json": "*"
     },
     "require-dev": {
+        "orchestra/testbench": "^10.0",
         "phpunit/phpunit": "^11.0"
+    },
+    "suggest": {
+        "illuminate/support": "^11.0|^12.0|^13.0, for the optional Laravel bridge (auto-discovered service provider, publishable config, and the Pliic::webhooks() route helper)."
     },
     "autoload": {
         "psr-4": {
@@ -40,6 +44,13 @@
     "autoload-dev": {
         "psr-4": {
             "Pliic\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Pliic\\Laravel\\PliicServiceProvider"
+            ]
         }
     },
     "scripts": {
