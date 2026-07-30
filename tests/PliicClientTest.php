@@ -9,11 +9,13 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Pliic\Exceptions\ApiErrorException;
 use Pliic\Exceptions\AuthenticationException;
+use Pliic\Exceptions\InsufficientScopeException;
 use Pliic\Exceptions\NotFoundException;
 use Pliic\Exceptions\PermissionException;
 use Pliic\Exceptions\RateLimitException;
 use Pliic\Exceptions\ValidationException;
 use Pliic\PliicClient;
+use Pliic\Testing\FakeHttpClient;
 
 final class PliicClientTest extends TestCase
 {
@@ -136,6 +138,62 @@ final class PliicClientTest extends TestCase
             $this->assertInstanceOf($exceptionClass, $exception);
             $this->assertSame($status, $exception->status);
             $this->assertSame('Something failed', $exception->getMessage());
+        }
+    }
+
+    public function test_maps_the_insufficient_scope_code_to_a_dedicated_exception(): void
+    {
+        $http = new FakeHttpClient;
+        $http->seedInsufficientScope('suggestions:write', ['suggestions:read', 'tickets:read']);
+
+        try {
+            $this->client($http)->suggestions->create(['user' => ['id' => 'u_1'], 'title' => 'Dark mode']);
+            $this->fail('Expected an InsufficientScopeException.');
+        } catch (InsufficientScopeException $exception) {
+            $this->assertSame(403, $exception->status);
+            $this->assertSame('suggestions:write', $exception->requiredScope());
+            $this->assertSame(['suggestions:read', 'tickets:read'], $exception->grantedScopes());
+            $this->assertSame('https://pliic.com/team/acme/settings/api-keys', $exception->manageScopesUrl());
+            $this->assertSame('https://docs.pliic.com/integrations/api-keys/', $exception->docsUrl());
+            $this->assertStringContainsString('suggestions:write', $exception->getMessage());
+            $this->assertStringContainsString('API Keys', $exception->getMessage());
+        }
+    }
+
+    public function test_insufficient_scope_is_still_catchable_as_a_permission_error(): void
+    {
+        $http = new FakeHttpClient;
+        $http->seedInsufficientScope();
+
+        $this->expectException(PermissionException::class);
+
+        $this->client($http)->suggestions->create(['user' => ['id' => 'u_1'], 'title' => 'Dark mode']);
+    }
+
+    public function test_maps_other_403s_to_the_generic_permission_exception(): void
+    {
+        $http = new FakeHttpClient(403, '{"message":"Feature not available in your plan","required_feature":"api_access"}');
+
+        try {
+            $this->client($http)->suggestions->list();
+            $this->fail('Expected a PermissionException.');
+        } catch (PermissionException $exception) {
+            $this->assertNotInstanceOf(InsufficientScopeException::class, $exception);
+            $this->assertSame('Feature not available in your plan', $exception->getMessage());
+        }
+    }
+
+    public function test_insufficient_scope_falls_back_to_the_api_message_without_structured_fields(): void
+    {
+        $http = new FakeHttpClient(403, '{"message":"Insufficient scope.","error":"insufficient_scope"}');
+
+        try {
+            $this->client($http)->suggestions->create(['user' => ['id' => 'u_1'], 'title' => 'Dark mode']);
+            $this->fail('Expected an InsufficientScopeException.');
+        } catch (InsufficientScopeException $exception) {
+            $this->assertSame('Insufficient scope.', $exception->getMessage());
+            $this->assertNull($exception->requiredScope());
+            $this->assertSame([], $exception->grantedScopes());
         }
     }
 

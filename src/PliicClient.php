@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use JsonException;
 use Pliic\Exceptions\ApiErrorException;
 use Pliic\Exceptions\AuthenticationException;
+use Pliic\Exceptions\InsufficientScopeException;
 use Pliic\Exceptions\NotFoundException;
 use Pliic\Exceptions\PermissionException;
 use Pliic\Exceptions\RateLimitException;
@@ -147,11 +148,25 @@ final class PliicClient
 
         return match (true) {
             $status === 401 => new AuthenticationException($message, $status, $body),
+            $status === 403 && $this->errorCode($body) === InsufficientScopeException::API_ERROR_CODE => InsufficientScopeException::fromApiError($message, $status, $body),
             $status === 403 => new PermissionException($message, $status, $body),
             $status === 404 => new NotFoundException($message, $status, $body),
             $status === 422 => new ValidationException($message, $status, $body),
             $status === 429 => new RateLimitException($message, $status, $body),
             default => new ApiErrorException($message, $status, $body),
         };
+    }
+
+    /**
+     * The API's stable machine-readable error code. Mapping keys off this and
+     * never off the message keeps the SDK working when the wording changes.
+     *
+     * @param  array<string, mixed>|null  $body
+     */
+    private function errorCode(?array $body): ?string
+    {
+        $code = $body['error'] ?? null;
+
+        return is_string($code) ? $code : null;
     }
 }

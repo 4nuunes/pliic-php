@@ -118,22 +118,77 @@ API failures throw typed exceptions, all extending `Pliic\Exceptions\ApiErrorExc
 | Status | Exception |
 | --- | --- |
 | 401 | `AuthenticationException` |
-| 403 | `PermissionException` (missing scope or plan feature) |
+| 403 + `error: insufficient_scope` | `InsufficientScopeException` (extends `PermissionException`) |
+| 403 | `PermissionException` (plan feature not available, and any other refusal) |
 | 404 | `NotFoundException` |
 | 422 | `ValidationException` (`$e->errors()` has the field errors) |
 | 429 | `RateLimitException` |
 
-Network-level failures throw `Pliic\Exceptions\TransportException`.
+Mapping is driven by the API's stable `error` code, never by the message text, so wording changes never break your `catch` blocks. Network-level failures throw `Pliic\Exceptions\TransportException`.
+
+### Missing scope (the usual first-write surprise)
+
+**A newly created Pliic key is read-only.** It carries `suggestions:read` and `tickets:read` and nothing else, so your first `create()` fails until someone enables the write scope — this is not a bug in your payload.
+
+`InsufficientScopeException` tells you exactly what is missing and where to fix it:
+
+```php
+use Pliic\Exceptions\InsufficientScopeException;
+
+try {
+    $pliic->tickets->create(['user' => $user, 'subject' => 'Cannot log in']);
+} catch (InsufficientScopeException $e) {
+    $e->requiredScope();    // 'tickets:write'
+    $e->grantedScopes();    // ['suggestions:read', 'tickets:read']
+    $e->manageScopesUrl();  // link straight to Settings → API Keys → Scopes
+    $e->docsUrl();          // https://docs.pliic.com/integrations/api-keys/
+    $e->getMessage();       // already a full, actionable sentence
+}
+```
+
+It extends `PermissionException`, so existing `catch (PermissionException)` code keeps catching it — narrow to `InsufficientScopeException` only where you want to tell "wrong key permissions" apart from "plan does not include this".
+
+Enable the scope in Pliic under **Settings → API Keys → Scopes** for the app the key belongs to.
 
 ## Testing your integration
 
-The HTTP transport is injectable, so you can fake it:
+The HTTP transport is injectable, so you can fake it. `Pliic\Testing\FakeHttpClient` ships with the package and answers every endpoint with a realistic payload out of the box — no setup needed for the common case:
 
 ```php
-use Pliic\HttpClient\HttpClientInterface;
+use Pliic\PliicClient;
+use Pliic\Testing\FakeHttpClient;
 
-$pliic = new PliicClient('sk_live_test', 'https://pliic.com', $yourFakeClient);
+$fake = new FakeHttpClient();
+$pliic = new PliicClient('sk_test_fake', 'https://pliic.com', $fake);
+
+$pliic->suggestions->list(); // realistic default list, zero configuration
 ```
+
+Seed a specific payload when a test cares about particular data:
+
+```php
+$fake->seedSuggestion(['id' => 42, 'title' => 'Dark mode', 'vote_count' => 12]);
+$pliic->suggestions->get(42); // returns the seeded suggestion
+
+$fake->seedError(422, 'Invalid', ['title' => ['Título já existe.']]);
+$pliic->suggestions->create(['user' => $user, 'title' => 'Duplicada']); // throws ValidationException
+
+$fake->seedInsufficientScope('tickets:write');
+$pliic->tickets->create(['user' => $user, 'subject' => 'Oi']); // throws InsufficientScopeException
+```
+
+`ownedByEmail()`/`ownedByUserId()` mirror the API's ownership scoping (a ticket read for a different `user_email`/`user_id` 404s). Note that once either is set, the fake denies **every** request that doesn't carry that exact query param — including one that, against the real API, wouldn't have been scoped at all: the real endpoints only enforce ownership when `user_id`/`user_email` is actually sent, so an unscoped read (neither param given) always succeeds there but 404s here. Reset `new FakeHttpClient()` between scenarios that need both behaviours in the same test.
+
+`failNextWithTransportError()` simulates a network failure on the next call only. Assert on what was sent:
+
+```php
+$fake->assertRequested('POST', '/suggestions/42/vote');
+$fake->assertRequestCount(2);
+
+expect($fake->lastRequestBody())->toBe(['user' => $user, 'title' => 'Dark mode']);
+```
+
+`$fake->requests` holds every call made (`method`, `url`, `headers`, `body`), and `Pliic\Testing\Fixtures` exposes every canned payload directly (`Fixtures::suggestion()`, `Fixtures::ticket()`, …) if you need one outside the fake — e.g. to assert against in a controller test. These fixtures are checked against the real API's OpenAPI spec in CI, so they don't drift silently.
 
 ## Versioning
 
